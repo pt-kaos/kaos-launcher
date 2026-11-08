@@ -1,0 +1,38 @@
+# kaos-launcher configuration. Delete this file to get these defaults back.
+# Missing or invalid values fall back to the default shown; numbers outside the range are clamped.
+
+# Keep one resident instance; Escape or a launch hides the panel and the toggle command brings it back.
+# false: Escape or a launch exits the process.
+run_in_background = true
+
+# How many recently launched apps (launched from kaos-launcher only) get a brighter glow. 0 turns it off. Range 0-20.
+recent_count = 5
+
+# Panel size as a percentage of the screen width and height. Range 20-100.
+panel_size_percent = 50
+
+# Hide (or exit) after launching an app.
+close_after_launch = true
+
+# Moon orbit speed. 1.0 normal, 0 stops the orbits. Range 0-5.
+orbit_speed = 1.0
+
+# Faint starfield in the background (drifts slightly when the ring turns).
+starfield = true
+
+# Show app icons on the moons (camera-facing billboards). false: plain spheres only.
+icons = true
+
+# Icon theme: "auto" (GTK settings of the session, then gsettings, then hicolor) or a theme name such as "Papirus-Dark".
+# The theme's Inherits chain and hicolor are searched; apps without an icon stay plain spheres.
+icon_theme = "auto"
+
+# Terminal for Terminal=true apps: "auto" (uses $TERMINAL, then kitty, alacritty, foot, wezterm, konsole, xterm)
+# or the name/path of a terminal that accepts "-e <command>".
+terminal = "auto"
+
+# Mouse drag sensitivity in degrees of ring rotation per pixel. Range 0.02-2.
+drag_speed = 0.25
+
+# Tooltip text size in pixels. Range 6-40.
+tooltip_font_size = 11

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Toggle kaos-launcher; start it when it is not running yet (single instance via quickshell -n).
+# Bind this to the hotkey, or autostart it with KAOS_START_HIDDEN=1 in the environment.
+set -u
+dir=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+if quickshell ipc -p "$dir" call launcher toggle 2>/dev/null; then
+  exit 0
+fi
+exec quickshell -p "$dir" -n
