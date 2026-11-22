@@ -175,6 +175,159 @@ class StateTests(unittest.TestCase):
         self.assertEqual(a.with_launch(st, "n", 0)["recent"], [])
         self.assertEqual(st["recent"], ["a", "b", "c"])  # input untouched
 
+    def test_history_keeps_20_independent_of_recent_count(self):
+        ids = [f"app{i}.desktop" for i in range(25)]
+        self.assertEqual(a.HISTORY_LIMIT, 20)
+        self.assertEqual(a.parse_state(json.dumps({"recent": ids}))["recent"], ids[:20])
+        st = {"planet": None, "recent": ids[:20]}
+        out = a.with_launch(st, "new.desktop")
+        self.assertEqual(out["recent"], ["new.desktop"] + ids[:19])
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "config.toml").write_text("recent_count = 2\n", encoding="utf-8")
+            sdir = Path(d) / "kaos-launcher"
+            sdir.mkdir()
+            (sdir / "state.json").write_text(
+                json.dumps({"planet": "X", "recent": ids}), encoding="utf-8"
+            )
+            env = {"XDG_STATE_HOME": d, "XDG_CONFIG_HOME": d}
+            with mock.patch.dict(os.environ, env):
+                self.assertEqual(
+                    a.load_config(Path(d) / "config.toml")["recent_count"], 2
+                )
+                self.assertEqual(a.init()["state"]["recent"], ids[:20])
+
+    def test_old_five_entry_state_still_loads(self):
+        raw = json.dumps({"planet": "X", "recent": ["a", "b", "c", "d", "e"]})
+        self.assertEqual(a.parse_state(raw)["recent"], ["a", "b", "c", "d", "e"])
+
+    def test_saved_style_roundtrip_old_and_invalid(self):
+        self.assertNotIn("style", a.parse_state('{"planet": "X", "recent": []}'))
+        for bad in ('"cube"', "3", "null", '""'):
+            self.assertNotIn("style", a.parse_state('{"style": ' + bad + "}"), bad)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "state.json"
+            st = {"planet": "X", "recent": ["a"], "style": "sphere"}
+            self.assertTrue(a.save_state(st, p))
+            self.assertEqual(a.load_state(p), st)
+
+    def test_launch_and_planet_save_preserve_style_and_history(self):
+        ids = [f"app{i}.desktop" for i in range(20)]
+        with tempfile.TemporaryDirectory() as d:
+            env = {"XDG_STATE_HOME": d, "XDG_CONFIG_HOME": d}
+            desk = Path(d) / "t.desktop"
+            desk.write_text(
+                "[Desktop Entry]\nType=Application\nName=T\nExec=true\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, env):
+                a.save_state({"planet": "X", "recent": ids, "style": "sphere"})
+                a.launch(str(desk), app_id="t.desktop", planet="Y")
+                st = a.load_state()
+                self.assertEqual(st["style"], "sphere")
+                self.assertEqual(st["recent"], ["t.desktop"] + ids[:19])
+                a.init_state_only("Z")
+                self.assertEqual(a.load_state()["style"], "sphere")
+                self.assertEqual(a.load_state()["planet"], "Z")
+                a.init_state_only(style="solar")  # F2 save keeps planet and history
+                st = a.load_state()
+                self.assertEqual((st["style"], st["planet"]), ("solar", "Z"))
+                self.assertEqual(len(st["recent"]), 20)
+                a.init_state_only(style="cube")  # invalid: ignored
+                self.assertEqual(a.load_state()["style"], "solar")
+                self.assertEqual(a.init()["state"]["style"], "solar")
+
+    def test_style_precedence(self):
+        cfg = {"style": "sphere"}
+        self.assertEqual(a.effective_style("solar", {"style": "sphere"}, cfg), "solar")
+        self.assertEqual(a.effective_style("", {"style": "solar"}, cfg), "solar")
+        self.assertEqual(a.effective_style("", {}, cfg), "sphere")
+        self.assertEqual(
+            a.effective_style("bad", {"style": "bad"}, {"style": "x"}), "solar"
+        )
+
+    def test_style_parsing_and_fallback(self):
+        self.assertEqual(a.defaults()["style"], "solar")
+        self.assertEqual(a.parse_config('style = "sphere"\n')["style"], "sphere")
+        self.assertEqual(a.parse_config('style = "solar"\n')["style"], "solar")
+        for bad in ('style = "cube"', "style = 3", "style = true", 'style = ""'):
+            self.assertEqual(a.parse_config(bad + "\n")["style"], "solar", bad)
+
+    def test_hex_count_parsing_clamp_and_fallback(self):
+        self.assertEqual(a.defaults()["hex_count"], 20)
+        self.assertEqual(a.parse_config("hex_count = 7\n")["hex_count"], 7)
+        self.assertEqual(a.parse_config("hex_count = 0\n")["hex_count"], 0)
+        self.assertEqual(a.parse_config("hex_count = 99\n")["hex_count"], 20)
+        self.assertEqual(a.parse_config("hex_count = -4\n")["hex_count"], 0)
+        for bad in ('"many"', "true", "nan", "inf"):
+            self.assertEqual(
+                a.parse_config("hex_count = " + bad + "\n")["hex_count"], 20, bad
+            )
+
+    def test_color_keys_parse_normalise_and_fall_back(self):
+        d = a.defaults()
+        self.assertEqual(
+            (d["color_main"], d["color_accent"], d["color_base"]),
+            ("#ff9a3c", "#3cd6ff", "#0a0d12"),
+        )
+        c = a.parse_config(
+            'color_main = "#F80"\ncolor_accent = "  #AbCdEf "\ncolor_base = "#000000"\n'
+        )
+        self.assertEqual(c["color_main"], "#ff8800")  # #rgb expands, lower case
+        self.assertEqual(c["color_accent"], "#abcdef")
+        self.assertEqual(c["color_base"], "#000000")
+        for bad in (
+            '"red"',
+            '"#12"',
+            '"#12345"',
+            '"#1234567"',
+            '"ff9a3c"',
+            "5",
+            "true",
+            '""',
+            '"#gg0000"',
+        ):
+            for key in ("color_main", "color_accent", "color_base"):
+                self.assertEqual(
+                    a.parse_config(f"{key} = {bad}\n")[key],
+                    a.defaults()[key],
+                    (key, bad),
+                )
+        # one bad key does not disturb the others
+        c = a.parse_config('color_main = "nope"\ncolor_accent = "#fff"\n')
+        self.assertEqual((c["color_main"], c["color_accent"]), ("#ff9a3c", "#ffffff"))
+
+    def test_name_plate_key(self):
+        self.assertIs(a.defaults()["name_plate"], False)
+        self.assertIs(a.parse_config("name_plate = true\n")["name_plate"], True)
+        for bad in ('"yes"', "1", "[]"):
+            self.assertIs(
+                a.parse_config(f"name_plate = {bad}\n")["name_plate"], False, bad
+            )
+
+    def test_open_animation_key(self):
+        self.assertIs(a.defaults()["open_animation"], True)
+        self.assertIs(
+            a.parse_config("open_animation = false\n")["open_animation"], False
+        )
+        self.assertIs(a.parse_config('open_animation = "no"\n')["open_animation"], True)
+
+    def test_generated_config_contains_style(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "c" / "config.toml"
+            a.load_config(p)
+            text = p.read_text(encoding="utf-8")
+            self.assertIn('style = "solar"', text)
+            self.assertIn("hex_count = 20", text)
+            self.assertIn("open_animation = true", text)
+            self.assertIn("name_plate = false", text)
+            for key, val in (
+                ("color_main", "#ff9a3c"),
+                ("color_accent", "#3cd6ff"),
+                ("color_base", "#0a0d12"),
+            ):
+                self.assertIn(f'{key} = "{val}"', text)
+            self.assertEqual(a.parse_config(text), a.defaults())
+
     def test_launch_records_only_with_id(self):
         with tempfile.TemporaryDirectory() as d:
             env = {"XDG_STATE_HOME": d, "XDG_CONFIG_HOME": d}

@@ -4,7 +4,8 @@
 kaos_launcher.py graph                          print graph JSON on stdout
 kaos_launcher.py init [--save-planet NAME]      print {config, state, graph} JSON; creates the default config on
                                                 first run; with --save-planet, stores the focused planet first
-kaos_launcher.py save --planet NAME             store the focused planet in the state
+kaos_launcher.py save [--planet NAME] [--style solar|sphere]
+                                                store the focused planet and/or the chosen style in the state
 kaos_launcher.py launch <path> [--id ID] [--planet NAME]
                                                 launch the desktop entry detached; with --id, record it in the state
 """
@@ -14,6 +15,7 @@ import configparser
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -76,7 +78,16 @@ SETTINGS = {
     "terminal": ("auto", "str", None, None),
     "drag_speed": (0.25, "float", 0.02, 2.0),
     "tooltip_font_size": (11, "int", 6, 40),
+    "style": ("solar", "choice", ("solar", "sphere"), None),
+    "hex_count": (20, "int", 0, 20),
+    "open_animation": (True, "bool", None, None),
+    "name_plate": (False, "bool", None, None),
+    "color_main": ("#ff9a3c", "color", None, None),
+    "color_accent": ("#3cd6ff", "color", None, None),
+    "color_base": ("#0a0d12", "color", None, None),
 }
+STYLES = SETTINGS["style"][2]
+HISTORY_LIMIT = 20  # launches kept in state.json, independent of recent_count
 
 DEFAULT_TOML = """\
 # kaos-launcher configuration. Delete this file to get these defaults back.
@@ -117,6 +128,30 @@ drag_speed = 0.25
 
 # Tooltip text size in pixels. Range 6-40.
 tooltip_font_size = 11
+
+# Visual style: "solar" (planets and moons) or "sphere" (particle sphere with an app ring).
+# F2 swaps the style in the open panel (not saved); `kaos-launcher --style solar|sphere` overrides it for one run.
+style = "solar"
+
+# Sphere style: how many of the most recently launched apps (launched from kaos-launcher only) are shown as hexagons
+# around the sphere instead of in the ring. 0 hides the hexagons and keeps every app in the ring. Range 0-20.
+hex_count = 20
+
+# Sphere style: play a short (under 0.3 s) assemble animation on every show: the particles gather into the sphere while the
+# rings and hexagons fade in. false: nothing animates on open.
+open_animation = true
+
+# Sphere style: draw a soft dark plate behind the app name in the middle of the sphere. Off by default (white letters with a dark
+# outline are enough on the default colours); turn it on if the name is hard to read with your colours.
+name_plate = false
+
+# Sphere style colours (hex strings, #rgb or #rrggbb; an invalid value falls back to the default). The solar style ignores them.
+# color_main: particles, labels and active elements.
+color_main = "#ff9a3c"
+# color_accent: highlights, hexagon borders, brackets and connector lines.
+color_accent = "#3cd6ff"
+# color_base: background, and the colour of the opaque disc and plates behind the sphere.
+color_base = "#0a0d12"
 """
 
 
@@ -171,9 +206,26 @@ def ensure_config(path):
         return False
 
 
+COLOR_RE = re.compile(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
+
+
+def normalize_color(value):
+    """'#rgb' or '#rrggbb' (any case) -> '#rrggbb' lower case; anything else -> None."""
+    if not isinstance(value, str) or not COLOR_RE.fullmatch(value.strip()):
+        return None
+    h = value.strip()[1:].lower()
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return "#" + h
+
+
 def _coerce(value, kind, lo, hi, default):
+    if kind == "color":
+        return normalize_color(value) or default
     if kind == "bool":
         return value if isinstance(value, bool) else default
+    if kind == "choice":  # lo holds the allowed values
+        return value if isinstance(value, str) and value in lo else default
     if kind == "str":
         return value.strip() or default if isinstance(value, str) else default
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -213,8 +265,9 @@ def load_config(path=None):
 
 
 # ---- state -----------------------------------------------------------------
-def parse_state(text, recent_count=5):
-    """JSON text -> {"planet": str|None, "recent": [desktop ids, newest first]}. Corrupt -> empty state."""
+def parse_state(text, limit=HISTORY_LIMIT):
+    """JSON text -> {"planet": str|None, "recent": [desktop ids, newest first], "style": "solar"|"sphere" (only when
+    valid and present)}. Corrupt -> empty state."""
     out = {"planet": None, "recent": []}
     try:
         raw = json.loads(text)
@@ -224,22 +277,24 @@ def parse_state(text, recent_count=5):
         return out
     if isinstance(raw.get("planet"), str) and raw["planet"]:
         out["planet"] = raw["planet"]
+    if raw.get("style") in STYLES:
+        out["style"] = raw["style"]
     recent = raw.get("recent")
     if isinstance(recent, list):
         seen = []
         for r in recent:
             if isinstance(r, str) and r and r not in seen:
                 seen.append(r)
-        out["recent"] = seen[: max(0, recent_count)]
+        out["recent"] = seen[: max(0, limit)]
     return out
 
 
-def load_state(path=None, recent_count=5):
+def load_state(path=None, limit=HISTORY_LIMIT):
     path = Path(path) if path else state_path()
     try:
-        return parse_state(path.read_text(encoding="utf-8"), recent_count)
+        return parse_state(path.read_text(encoding="utf-8"), limit)
     except (OSError, UnicodeDecodeError):
-        return parse_state("", recent_count)
+        return parse_state("", limit)
 
 
 def save_state(state, path=None):
@@ -252,9 +307,9 @@ def save_state(state, path=None):
         return False
 
 
-def with_launch(state, app_id, recent_count):
+def with_launch(state, app_id, limit=HISTORY_LIMIT):
     recent = [app_id] + [r for r in state["recent"] if r != app_id]
-    return {**state, "recent": recent[: max(0, recent_count)]}
+    return {**state, "recent": recent[: max(0, limit)]}
 
 
 def data_dirs():
@@ -568,7 +623,7 @@ def find_terminal(setting="auto"):
     return None
 
 
-def launch(path, terminal="auto", app_id=None, planet=None, recent_count=5):
+def launch(path, terminal="auto", app_id=None, planet=None):
     e = read_entry(path)
     if e is None:
         sys.exit("cannot read " + path)
@@ -595,7 +650,7 @@ def launch(path, terminal="auto", app_id=None, planet=None, recent_count=5):
     except OSError as ex:
         sys.exit(f"launch failed: {ex}")
     if app_id:  # only launches made from kaos-launcher are recorded
-        st = with_launch(load_state(recent_count=recent_count), app_id, recent_count)
+        st = with_launch(load_state(), app_id)
         if planet:
             st["planet"] = planet
         save_state(st)
@@ -603,7 +658,7 @@ def launch(path, terminal="auto", app_id=None, planet=None, recent_count=5):
 
 def init(save_planet=None):
     cfg = load_config()
-    state = load_state(recent_count=cfg["recent_count"])
+    state = load_state()
     if save_planet and save_planet != state["planet"]:
         state["planet"] = save_planet
         save_state(state)
@@ -614,10 +669,21 @@ def init(save_planet=None):
     }
 
 
-def init_state_only(planet):
-    state = load_state(recent_count=load_config()["recent_count"])
-    state["planet"] = planet
+def init_state_only(planet=None, style=None):
+    state = load_state()
+    if planet:
+        state["planet"] = planet
+    if style in STYLES:
+        state["style"] = style
     save_state(state)
+
+
+def effective_style(override, state, cfg):
+    """Style precedence: one-run override (KAOS_STYLE / IPC), then the saved style, then config.toml."""
+    for v in (override, state.get("style"), cfg.get("style")):
+        if v in STYLES:
+            return v
+    return "solar"
 
 
 def main(argv):
@@ -627,7 +693,8 @@ def main(argv):
     p = sub.add_parser("init")
     p.add_argument("--save-planet")
     p = sub.add_parser("save")
-    p.add_argument("--planet", required=True)
+    p.add_argument("--planet")
+    p.add_argument("--style", choices=STYLES)
     p = sub.add_parser("launch")
     p.add_argument("path")
     p.add_argument("--id")
@@ -636,12 +703,14 @@ def main(argv):
     if args.cmd == "graph":
         json.dump(build_graph(), sys.stdout, ensure_ascii=False)
     elif args.cmd == "save":
-        init_state_only(args.planet)
+        if not args.planet and not args.style:
+            ap.error("save needs --planet and/or --style")
+        init_state_only(args.planet, args.style)
     elif args.cmd == "init":
         json.dump(init(args.save_planet), sys.stdout, ensure_ascii=False)
     else:
         cfg = load_config()
-        launch(args.path, cfg["terminal"], args.id, args.planet, cfg["recent_count"])
+        launch(args.path, cfg["terminal"], args.id, args.planet)
 
 
 if __name__ == "__main__":

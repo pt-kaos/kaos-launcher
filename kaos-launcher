@@ -1,8 +1,39 @@
 #!/usr/bin/env bash
 # Toggle kaos-launcher; start it when it is not running yet (single instance via quickshell -n).
 # Bind this to the hotkey, or autostart it with KAOS_START_HIDDEN=1 in the environment.
+# --style solar|sphere: use that style for this run (overrides config.toml; a resident instance keeps it until it exits).
 set -u
 dir=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+style=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --style)
+      [ $# -ge 2 ] || { echo "kaos-launcher: --style needs a value" >&2; exit 2; }
+      style=$2
+      shift 2
+      ;;
+    --style=*)
+      style=${1#--style=}
+      shift
+      ;;
+    *)
+      echo "usage: kaos-launcher [--style solar|sphere]" >&2
+      exit 2
+      ;;
+  esac
+done
+case $style in
+  "" | solar | sphere) ;;
+  *)
+    echo "kaos-launcher: --style must be solar or sphere" >&2
+    exit 2
+    ;;
+esac
+if [ -n "$style" ]; then
+  export KAOS_STYLE=$style
+  # resident instance already running: hand the override over IPC (ignored if none is running)
+  quickshell ipc -p "$dir" call launcher setStyle "$style" >/dev/null 2>&1 || true
+fi
 if quickshell ipc -p "$dir" call launcher toggle 2>/dev/null; then
   exit 0
 fi

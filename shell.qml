@@ -21,10 +21,11 @@ ShellRoot {
         scene.dbg("screen: " + (targetScreen ? targetScreen.name + " " + targetScreen.width + "x" + targetScreen.height : "none")
             + " (hyprland focused: " + (fm ? fm.name : "n/a") + ")");
     }
-    function show() { pickScreen(); shown = true; }
+    function show() { scene.dbg("show"); pickScreen(); shown = true; }
     // run_in_background = false: "hide" ends the process instead (after saving the focused planet).
     function hide() {
         if (!shown) return;
+        scene.dbg("hide");
         if (!scene.cfg.run_in_background) { scene.quit(); return; }
         shown = false;
         scene.hidden();
@@ -36,6 +37,8 @@ ShellRoot {
         function toggle(): void { root.toggle(); }
         function show(): void { root.show(); }
         function hide(): void { root.hide(); }
+        // one-run style override from `kaos-launcher --style` on a resident instance ("solar" | "sphere")
+        function setStyle(name: string): void { scene.styleOverride = name; }
     }
 
     FloatingWindow {
@@ -51,6 +54,7 @@ ShellRoot {
             id: scene
             anchors.fill: parent
             awake: root.shown
+            styleOverride: Quickshell.env("KAOS_STYLE") || ""
             onCloseRequested: root.hide()
         }
     }

@@ -1,26 +1,34 @@
 # kaos-launcher
 
-Version 0.1.0
+Version 0.2.0
 
-A 3D "solar system" application launcher for Linux, built with Qt Quick 3D inside a standalone Quickshell window.
-Application categories are planets on a ring around a glowing sun; the apps of the focused planet orbit it as moons.
-Rotate the ring with the mouse or the arrow keys, type to search, press Enter or click to launch.
+A 3D application launcher for Linux, built with Qt Quick 3D inside a standalone Quickshell window. Two looks, chosen by
+config, a key (F2) or a command-line flag:
 
-![Overview: the Internet planet in front with its apps as moons](screenshots/overview.png)
+- **solar**: categories are planets on a ring around a glowing sun; the apps of the focused planet orbit it as moons.
+- **sphere**: a glowing particle sphere with your recent apps as hexagons on an outer orbit and every other app in a ring of
+  icons around it, in the style of a sci-fi HUD.
+
+Type to search, press Enter or click to launch.
+
+| Solar | Sphere (Recents view) |
+|-------|-----------------------|
+| ![Solar style](screenshots/overview.png) | ![Sphere style, Recents view](screenshots/sphere-recents.png) |
 
 ## Features
 
-- Categories as planets (size by app count), apps as moons with their real icons; plain spheres when no icon exists.
+- Two styles (`solar`, `sphere`) sharing search, keys, state, config and launching; F2 swaps live and remembers the choice.
 - Keyboard first: arrows rotate and select, Enter launches, type anywhere to search, Escape clears then closes.
-- Fuzzy search on name, then keywords, then comment; the camera flies to the best match, even on another planet.
-- Hover tooltip with name and comment.
+- Fuzzy search on name, then keywords, then comment; the view flies to the best match, even in another category or view.
+- Real app icons from the freedesktop icon theme; solar shows a hover tooltip with name and comment.
+- Sphere style: your 20 most recent launches (from kaos-launcher only) as glowing hexagons grouped by category, two views
+  (Recents and All apps) toggled with Tab, a launch pulse and an optional open animation, configurable colours.
 - Resident background instance toggled by a command (instant open), or run-once mode.
-- Recently launched apps (from kaos-launcher only) get a brighter glow; opens on the last focused planet.
 - Reads standard `.desktop` files; handles `Terminal=true` apps and Exec field codes.
 - Small TOML config file with commented defaults, created on first run.
 
-| Search | Large category |
-|--------|----------------|
+| Solar: search | Solar: large category |
+|---------------|-----------------------|
 | ![Search for "ff"](screenshots/search.png) | ![Settings planet with many moons](screenshots/settings.png) |
 
 ## Requirements
@@ -31,7 +39,7 @@ platform plugin through Quickshell.
 | Component | Needed | Arch package | Notes |
 |-----------|--------|--------------|-------|
 | Quickshell | required | `quickshell` (0.3.x; tested 0.3.2) | Provides `quickshell`, `Quickshell.Io`, `Quickshell.Hyprland` QML modules |
-| Qt Quick 3D | required | `qt6-quick3d` | The 3D scene; pulls `qt6-shadertools`, `qt6-quicktimeline` |
+| Qt Quick 3D | required | `qt6-quick3d` | The 3D scene; pulls `qt6-shadertools`, `qt6-quicktimeline`. The sphere style's particle shaders (`dot.vert`, `dot.frag`) are compiled at run time by `qt6-shadertools`; no pre-built shader files are shipped |
 | Qt 6 base, Declarative, Wayland, SVG | required | `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qt6-svg` | Already dependencies of `quickshell` |
 | Python 3.11+ | required | `python` | Backend, standard library only (`tomllib` needs 3.11) |
 | Wayland compositor | required | any | Quickshell windows need Wayland |
@@ -88,25 +96,94 @@ Control a running instance directly (talks only to the instance started from tha
 
     quickshell ipc -p /path/to/kaos-launcher call launcher toggle     # or: show, hide
 
+Choose the style for one run with `--style solar|sphere` (see Styles). A resident instance that is already running
+receives the override over IPC and keeps it until it exits.
+
+    kaos-launcher --style sphere
+
 Start hidden (for autostart, shown at the first toggle): `KAOS_START_HIDDEN=1 quickshell -p /path/to/kaos-launcher -n`.
 
 ### Keys and mouse
 
-| Input | Action |
-|-------|--------|
-| Left / Right | Rotate the ring to the previous / next planet |
-| Up / Down | Select the previous / next moon of the focused planet (wraps) |
-| Enter | Launch the selected moon (nothing selected: nothing happens) |
-| Any text | Search (no click needed); Backspace edits |
-| Escape | First press clears the search, second closes; with no search text it closes directly |
-| Drag left/right | Rotate the ring, snapping to the nearest planet |
-| Click a planet | Bring it to the front |
-| Hover a moon | Freeze it and show name and comment |
-| Click a moon | Launch it (detached, survives closing the launcher) |
+| Input | Solar | Sphere |
+|-------|-------|--------|
+| Left / Right | Rotate the ring to the previous / next planet | Recents view: previous / next hex. All apps view: previous / next category arc |
+| Up / Down | Select the previous / next moon of the focused planet (wraps) | Recents: previous / next hex. All apps: previous / next app inside the arc (wraps) |
+| Tab / Shift+Tab | (ignored) | Switch between the Recents and All apps views (nothing happens without recent apps) |
+| Enter | Launch the selected moon | Launch the selected hex or ring icon |
+| Any text | Search (no click needed); Backspace edits | Same; the best match decides the view |
+| Escape | First press clears the search, second closes; with no search text it closes directly | Same |
+| Drag left/right | Rotate the ring, snapping to the nearest planet | Turn the orbit (Recents) or the ring (All apps), snapping to the nearest item |
+| Click | A planet: bring it to the front. A moon: launch it | A front hex or ring icon: launch it |
+| Hover | Freeze a moon and show name and comment | Highlight the item under the pointer |
+| F2 | Swap between the styles; the choice is saved in `state.json` and kept across restarts | |
+
+Launches are detached and survive closing the launcher.
+
+### Styles
+
+Priority for the style, highest first: (1) `--style solar|sphere` or `KAOS_STYLE` (one run, never saved); (2) the style saved in
+`state.json` by F2; (3) `style` in `config.toml` (default `solar`). An invalid value at any level is ignored. Because the app
+never rewrites `config.toml`, F2 stores its choice in `state.json`; once F2 has been used, editing `style` in `config.toml` has
+no effect until the `style` field is removed from `state.json` (or the file is deleted). F2 while a one-run override is active
+ends that override.
+
+#### Solar
+
+The planets-and-moons scene: categories as planets on a ring (size by app count), the apps of the focused planet as moons with
+their icons, a glowing sun, a starfield, a brighter glow for the `recent_count` most recent launches.
+
+#### Sphere
+
+A slowly turning sphere of about 3600 soft, glowing particles (amber with cyan patches and a bright core) with two rings around
+it, both seen from below like a HUD: the front arc of each ring is its upper arc, so the selected item is at the top and the
+back arc runs behind the lower half of the sphere. The core shows only the selected app's name (about halfway between the centre and the border; no category name, and
+the search text is in the box at the top). Some particles and a halo take the colour of the focused category. The sphere itself is not
+clickable.
+
+The panel has two views, never shown together. Tab / Shift+Tab toggle them (animated, about 0.35 s); nothing zooms by itself.
+Every show starts in Recents when there are recents, else in All apps; the last view is not remembered.
+
+| Recents view | All apps view |
+|--------------|---------------|
+| ![Recents](screenshots/sphere-recents.png) | ![All apps](screenshots/sphere-all-apps.png) |
+
+- **Recents view**: your most recent launches (from kaos-launcher only, newest first, up to `hex_count`, default 20) as glowing
+  hexagons on an outer orbit: a larger ellipse leaning the other way from the inner ring (+12 degrees against -9), evenly
+  spaced, grouped by category with one uppercase label per group and thin connector lines from the label to its hexes. A
+  hexagon's brightness shows how recent it is; the selected one is white. The orbit's front is large and clickable, its back is
+  small, dim and really behind the sphere. The inner ring with all other apps is still there as a quiet band of small, dim
+  icons (not clickable). The newest hex is selected on open, so Enter right after opening relaunches your latest app.
+- **All apps view**: the camera moves closer (zoom 1.45), the orbit disappears and the inner ring becomes full size, with an arc
+  per category (uppercase label and a thin stripe in the category colour). With no recents (first time, or `hex_count = 0`) this
+  is the only view and the ring holds every app.
+- **Search** works in both views and picks the view of its best match: a ring app zooms into All apps and turns the ring to it,
+  a hex app goes to Recents and turns the orbit to it. Matches light up, the others dim; Up/Down cycle the matches across both
+  views. The first Escape clears the search and leaves the view as it is. Tab is ignored while searching.
+- **HUD**: small corner brackets frame the scene, a dim static starfield sits behind it (`starfield = false` turns it off),
+  and there is no tooltip: the selected app's name is in the core (a little below its centre) and the group name on the hex or ring labels.
+- **Launching** makes the sphere swell and its core flare for about 0.4 s before the panel hides (the close is delayed by that
+  long; with `close_after_launch = false` the pulse plays and the panel stays).
+- **Open animation** (`open_animation`, default on): on every show the particles gather into the sphere in under 0.3 s while the
+  rings and hexes fade in. It does not run while the panel is hidden.
+- **Colours**: `color_main`, `color_accent` and `color_base` (hex strings) restyle the sphere style; the category colours (stripes
+  and group labels) stay.
+
+Look constants that are not in the config (`showOrbitLine`, `ringRecentsAlpha`, `ringRecentsIconFrac`, particle count) are at
+the top of `SphereScene.qml`. Layout rules and their tests are in `sphere.js` / `sphere.test.js`.
+
+| Search matching a recent app | First time: no recents, All apps only |
+|------------------------------|----------------------------------------|
+| ![Search](screenshots/sphere-search.png) | ![First time](screenshots/sphere-first-time.png) |
+
+Limits of the sphere style: on a square or very small panel the orbit cannot be much larger than the ring (it is scaled to fit);
+more than about 8 category groups among the recents can make some group labels disappear; a freshly launched app moves from the
+ring to the orbit at once (also with `close_after_launch = false`), so the ring shifts. The bottom hint line shows `Tab` only
+when there are recents. Frame rate and GPU load were not measured on other hardware.
 
 ### Search
 
-Matching moons light up and the others dim; the camera flies to the best match and selects it. The search line shows
+(Solar; the sphere style's search is described under Styles.) Matching moons light up and the others dim; the camera flies to the best match and selects it. The search line shows
 `position/total` or `no match`; planet labels show the match count per category. While searching, Up/Down cycle
 through the matches (best first, across planets); Left/Right still rotate.
 
@@ -136,7 +213,9 @@ directories (PNG and SVG; `.xpm` is not used). The active theme is `gtk-icon-the
 File: `$XDG_CONFIG_HOME/kaos-launcher/config.toml` (default `~/.config/kaos-launcher/config.toml`). It is created with
 commented defaults on first run and never overwritten afterwards; `config.example.toml` in this repository is the same
 file. Invalid TOML or a bad value falls back to the default for that key; numbers are clamped to their range; unknown
-keys are ignored. Changes apply at the next hide/show cycle (see Background mode).
+keys are ignored. Changes apply at the next hide/show cycle (see Background mode). `style`, `hex_count`, `open_animation`, `name_plate` and the
+`color_*` keys only affect the sphere style (`style` selects it); colours are validated (`#rgb` or `#rrggbb`, any case, stored as
+`#rrggbb`) and an invalid value falls back to the default for that key.
 
 | Key | Default | Range | Meaning |
 |-----|---------|-------|---------|
@@ -145,20 +224,29 @@ keys are ignored. Changes apply at the next hide/show cycle (see Background mode
 | `panel_size_percent` | `50` | 20-100 | Panel width and height as a percentage of the screen |
 | `close_after_launch` | `true` | bool | Hide (or exit) after launching |
 | `orbit_speed` | `1.0` | 0-5 | Moon orbit speed, 0 stops the orbits |
-| `starfield` | `true` | bool | Faint stars in the background |
+| `starfield` | `true` | bool | Faint stars in the background (both styles; static and very dim in the sphere style) |
 | `icons` | `true` | bool | App icons on the moons; `false` shows plain spheres |
 | `icon_theme` | `"auto"` | string | Icon theme name; `"auto"` = GTK settings, then gsettings, then hicolor |
 | `terminal` | `"auto"` | string | Terminal for `Terminal=true` apps: `"auto"` (`$TERMINAL`, then kitty, alacritty, foot, wezterm, konsole, xterm) or a command accepting `-e <cmd>`; an unusable value falls back to auto with a note on stderr |
 | `drag_speed` | `0.25` | 0.02-2 | Degrees of ring rotation per dragged pixel |
 | `tooltip_font_size` | `11` | 6-40 | Tooltip text size in pixels |
+| `hex_count` | `20` | 0-20 | Sphere style: how many recent apps are shown as hexagons instead of in the ring (0 = none) |
+| `open_animation` | `true` | bool | Sphere style: assemble animation on every show (under 0.3 s); `false` shows the scene at once |
+| `name_plate` | `false` | bool | Sphere style: a soft dark plate behind the app name in the core, for colour schemes where the white name is hard to read |
+| `color_main` | `"#ff9a3c"` | `#rgb` / `#rrggbb` | Sphere style: particles, labels and active elements (amber) |
+| `color_accent` | `"#3cd6ff"` | `#rgb` / `#rrggbb` | Sphere style: highlights, hexagon borders, brackets and connector lines (cyan) |
+| `color_base` | `"#0a0d12"` | `#rgb` / `#rrggbb` | Sphere style: background and the opaque disc and plates behind the sphere |
+| `style` | `"solar"` | `"solar"`, `"sphere"` | Default visual style (see Styles for precedence: F2 choice saved in `state.json` wins); invalid falls back to `"solar"` |
 
 ### State
 
 File: `$XDG_STATE_HOME/kaos-launcher/state.json` (default `~/.local/state/kaos-launcher/state.json`):
 
-    {"planet": "<label>", "recent": ["<desktop id>", ...]}
+    {"planet": "<label>", "recent": ["<desktop id>", ...], "style": "solar"|"sphere"}
 
-It holds the last focused planet and the last `recent_count` launches made from kaos-launcher (newest first). Delete
+`planet` is the last focused planet (solar), `recent` the last 20 launches made from kaos-launcher (newest first; the sphere style shows up
+to `hex_count` of them as hexagons and solar glows the first `recent_count`), and `style` the style chosen with F2 (absent until used). Older files
+with fewer entries load unchanged. Delete
 it to reset. It is written atomically; a missing or corrupt file counts as empty.
 
 ## Background mode
@@ -168,7 +256,7 @@ With `run_in_background = true` (default) there is one resident process. Escape 
 renders. On hide the state is saved and the generator re-runs in the background, so the next show has fresh data:
 new `.desktop` apps and config edits appear after the next hide. A toggle within about 100 ms of a hide may still show
 the data from before the refresh. When shown again the search is cleared, no moon is selected and the last focused
-planet is in front without a fly-in.
+planet is in front without a fly-in (sphere style: the open animation plays instead, if enabled).
 
 With `run_in_background = false`, Escape, a launch or `toggle`/`hide` ends the process (state saved first).
 
@@ -176,7 +264,7 @@ With `run_in_background = false`, Escape, a launch or `toggle`/`hide` ends the p
 
 The panel is a plain `FloatingWindow` titled `kaos-launcher`. Without rules Hyprland tiles it, so `panel_size_percent`
 is only a size hint. A window rule is needed to float, centre and size it. Other compositors need equivalent rules, or
-you can replace only `shell.qml` with a layer-shell variant; the 3D scene (`Launcher.qml`) does not depend on the
+you can replace only `shell.qml` with a layer-shell variant; the controller (`Launcher.qml`) and scenes do not depend on the
 window type.
 
 Rule semantics for a window with title `kaos-launcher`: float, centre, size to the same percentage as
@@ -209,9 +297,9 @@ Closing the panel when it loses focus is not implemented: clicking outside does 
 Run in this directory:
 
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q
-    node --test search.test.js
+    node --test search.test.js sphere.test.js
     ruff check . && ruff format --check .
-    qmllint -I /usr/lib/qt6/qml Launcher.qml shell.qml Glow.qml
+    qmllint -I /usr/lib/qt6/qml Launcher.qml SolarScene.qml SphereScene.qml Glow.qml DotMaterial.qml   # one file per call; shell.qml makes qmllint exit silently
     shellcheck kaos-launcher
 
 To try it without touching your own configuration, point the XDG directories at a scratch location:
@@ -220,15 +308,20 @@ To try it without touching your own configuration, point the XDG directories at 
 
 `KAOS_DEBUG=1` (the variable goes before the command) logs hover, press/release, pick results, launches, focus and key
 events, and runs a scripted pick test and keyboard/search self-test a few seconds after start (query from
-`KAOS_DEBUG_QUERY`, default `ff`).
+`KAOS_DEBUG_QUERY`, default `ff`). In the debug mode it also logs a frame-rate estimate every 2 s (`fps ...`, with style and view)
+and the time of the first frame after the first load.
 
 Files:
 
 | File | Purpose |
 |------|---------|
-| `kaos_launcher.py` | Backend. `init [--save-planet X]` prints `{config, state, graph}` JSON and creates the default config; `graph` prints the graph; `launch <desktop file> [--id ID] [--planet X]` strips Exec field codes, wraps `Terminal=true` entries in a terminal, starts the process in a new session and records the id; `save --planet X` stores the focused planet |
+| `kaos_launcher.py` | Backend. `init [--save-planet X]` prints `{config, state, graph}` JSON and creates the default config; `graph` prints the graph; `launch <desktop file> [--id ID] [--planet X]` strips Exec field codes, wraps `Terminal=true` entries in a terminal, starts the process in a new session and records the id; `save [--planet X] [--style S]` stores the focused planet and/or the chosen style |
 | `shell.qml` | Host: `FloatingWindow`, monitor choice, show/hide logic, IPC handler (`launcher` target) |
-| `Launcher.qml` | The 3D scene: ring carousel, moon orbits, picking, search UI, keys. Fixed look constants at the top |
+| `Launcher.qml` | Controller, independent of the style: data load, search, launching, keys (Shortcuts), search line, status; loads the scene by `style`. The scene interface is documented at its top |
+| `SolarScene.qml` | Solar style: 3D ring carousel, moon orbits, picking, tooltip. Fixed look constants at the top |
+| `SphereScene.qml` | Sphere style: instanced particle sphere (Qt Quick 3D), ring of icons as a 2D overlay, core text, mouse |
+| `sphere.js`, `sphere.test.js` | Pure sphere-style logic with tests: ring layout, orbit geometry, label and connector placement, views and fades, brackets, starfield, particle generation, layer order |
+| `DotMaterial.qml`, `dot.vert`, `dot.frag` | The soft round particle: an unlit additive custom material with a camera-facing quad per instance and the open animation |
 | `Glow.qml` | Camera-facing soft glow sprite |
 | `search.js`, `search.test.js` | Pure fuzzy-match and ranking functions and their tests |
 | `test_kaos_launcher.py` | Backend tests |

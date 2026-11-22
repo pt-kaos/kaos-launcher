@@ -36,3 +36,27 @@ drag_speed = 0.25
 
 # Tooltip text size in pixels. Range 6-40.
 tooltip_font_size = 11
+
+# Visual style: "solar" (planets and moons) or "sphere" (particle sphere with an app ring).
+# F2 swaps the style in the open panel (not saved); `kaos-launcher --style solar|sphere` overrides it for one run.
+style = "solar"
+
+# Sphere style: how many of the most recently launched apps (launched from kaos-launcher only) are shown as hexagons
+# around the sphere instead of in the ring. 0 hides the hexagons and keeps every app in the ring. Range 0-20.
+hex_count = 20
+
+# Sphere style: play a short (under 0.3 s) assemble animation on every show: the particles gather into the sphere while the
+# rings and hexagons fade in. false: nothing animates on open.
+open_animation = true
+
+# Sphere style: draw a soft dark plate behind the app name in the middle of the sphere. Off by default (white letters with a dark
+# outline are enough on the default colours); turn it on if the name is hard to read with your colours.
+name_plate = false
+
+# Sphere style colours (hex strings, #rgb or #rrggbb; an invalid value falls back to the default). The solar style ignores them.
+# color_main: particles, labels and active elements.
+color_main = "#ff9a3c"
+# color_accent: highlights, hexagon borders, brackets and connector lines.
+color_accent = "#3cd6ff"
+# color_base: background, and the colour of the opaque disc and plates behind the sphere.
+color_base = "#0a0d12"
