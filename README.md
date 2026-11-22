@@ -88,27 +88,49 @@ The script resolves symlinks, so it finds the application directory from the lin
 
 ### Installing the command
 
-`install.sh` puts the `kaos-launcher` command on your `PATH` as a symlink and removes it again. It never uses `sudo`, never
-installs packages (it only reports missing dependencies) and touches nothing but that one link; add `--dry-run` to any command
-to see what it would do.
+`install.sh` installs a copy of the app and the `kaos-launcher` command, so the app no longer depends on the repository
+directory. It never uses `sudo`, never installs packages (it only reports missing dependencies), never deletes recursively and
+touches nothing but what it installs; add `--dry-run` to any command to see what it would do.
 
-    ./install.sh                 # install: ~/.local/bin/kaos-launcher -> this directory's wrapper (same as `install`)
-    ./install.sh status          # installed? where does the link point? is the app running?
-    ./install.sh uninstall       # remove the link (only if it points to this directory's wrapper)
+    ./install.sh                     # install (or upgrade): copy the runtime files and link the command to the copy
+    ./install.sh status              # mode (copy or link), share directory, link target, running or not, PATH
+    ./install.sh uninstall           # remove the link and the files it installed
     ./install.sh uninstall --purge   # also remove ~/.config/kaos-launcher and ~/.local/state/kaos-launcher (asks first; --yes skips it)
+    ./install.sh --link              # development: no copy, the command runs the app straight from this directory
+
+What goes where:
+
+- The runtime files are copied to `~/.local/share/kaos-launcher` (`$XDG_DATA_HOME/kaos-launcher`; change it with `--share-dir DIR` or
+  `$KAOS_SHARE_DIR`): all `*.qml`, `search.js`, `sphere.js`, `dot.vert`, `dot.frag`, `kaos_launcher.py`, the `kaos-launcher`
+  wrapper (executable), `config.example.toml`, `LICENSE.md`, `README.md` and `CHANGELOG.md`. Tests, the install scripts,
+  screenshots and `.git` are not copied. The file list is defined once at the top of `install.sh`, and the install fails if a
+  required file is missing. A marker file `.kaos-launcher-install` (version, date, source, list of files) records what was
+  installed.
+- The command is the symlink `~/.local/bin/kaos-launcher` (`--bin-dir DIR` or `$KAOS_BIN_DIR`) pointing to the wrapper in the share
+  directory. Make sure `~/.local/bin` is in your `PATH` (the script warns if it is not).
+- Config and state stay where they always were (`~/.config/kaos-launcher`, `~/.local/state/kaos-launcher`) and are only removed
+  by `uninstall --purge`.
+
+Upgrading is re-running `./install.sh` from a newer checkout: changed files are replaced, files that an older install had and the
+new version no longer has are removed (only names recorded in the marker), and it reports `Updated` or `Already up to date`.
+Restart a running resident instance afterwards (`quickshell kill -p ~/.local/share/kaos-launcher`, then run `kaos-launcher`).
 
 | Option | Meaning |
 |--------|---------|
+| `--share-dir DIR` | Where the copy goes (default `$KAOS_SHARE_DIR`, else `${XDG_DATA_HOME:-~/.local/share}/kaos-launcher`) |
 | `--bin-dir DIR` | Where the link lives (default `$KAOS_BIN_DIR`, else `~/.local/bin`) |
-| `--force` | `install`: replace a link or file that is already there (otherwise it refuses with exit status 1) |
+| `--link` | Development mode: no copy, link straight to this directory's wrapper; `status` shows which mode is active |
+| `--force` | Replace a foreign link or file in the way, or install into a non-empty share directory that has no marker; without it the script refuses with exit status 1 |
 | `--purge` | `uninstall`: also remove the config and state directories after a y/N question; without a terminal it refuses unless `--yes` is given |
 | `--yes` | Do not ask (purge confirmation, stopping a running instance) |
 | `--dry-run` | Print what would happen, change nothing |
 
-Installing is idempotent; it warns when the bin directory is not in `PATH`. `uninstall` never deletes a regular file or a link
-that points somewhere else. If a resident instance of this app is running, it offers to stop it with `quickshell kill -p <this
-directory>` (never any other instance). `KAOS_INSTALL_NO_IPC=1` skips that check. Without `--purge` the config and state are kept.
-The script's tests are in `install.test.sh` (temporary directories only).
+Details: a link that already points to this repository's wrapper (for example one made by hand) is replaced by the new link
+without `--force`; a link or file that is something else is never touched without it. `uninstall` removes the link only if it points
+to the installed copy or to this repository's wrapper, deletes only the files recorded in the marker (and the marker), removes
+the share directory only if it is then empty, and reports any other file it finds there. If a resident instance is running from
+the share directory (or from the repository directory) it offers to stop it with `quickshell kill -p <that directory>`; no other
+instance is ever touched (`KAOS_INSTALL_NO_IPC=1` skips the check). The script's tests are in `install.test.sh` (temporary directories only).
 
 ## Usage
 

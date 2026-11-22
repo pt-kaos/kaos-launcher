@@ -2,10 +2,14 @@
 
 ## Unreleased
 
-- `install.sh`: installs the `kaos-launcher` command as a symlink (default `~/.local/bin`, `--bin-dir`, `$KAOS_BIN_DIR`), idempotent, refuses to replace
-  other files or links without `--force`, checks dependencies and `PATH` without installing anything; `uninstall` removes only its own link
-  (`--purge` also removes config and state after confirmation), offers to stop a running instance of this app only; `status`, `--dry-run`.
-  Tested by `install.test.sh` in temporary directories.
+- `install.sh` copies the runtime files of the app to `~/.local/share/kaos-launcher` (`--share-dir`, `$KAOS_SHARE_DIR`,
+  `$XDG_DATA_HOME`) and links the `kaos-launcher` command (`~/.local/bin`, `--bin-dir`, `$KAOS_BIN_DIR`) to the copy, so the app no
+  longer depends on the repository directory. Re-running it upgrades (stale files from an older install are removed, tracked by an
+  install marker; "Updated" or "Already up to date"). `--link` is a development mode without a copy. A link that already points to
+  this repository's wrapper is replaced without `--force`; anything else in the way needs it; a non-empty share directory without our
+  marker is refused. `uninstall` removes only the files it installed (reporting unknown ones), `--purge` also removes config and
+  state after confirmation, and a running instance is detected and stopped per path (only the share directory and this directory).
+  `status`, `--dry-run`. No recursive deletes, no sudo. Tested by `install.test.sh` (72 checks, temporary directories only).
 
 ## 0.2.0 - 2026-11-22
 
