@@ -86,6 +86,30 @@ instance runs it toggles show/hide, otherwise it starts one. Optionally link it 
 
 The script resolves symlinks, so it finds the application directory from the link.
 
+### Installing the command
+
+`install.sh` puts the `kaos-launcher` command on your `PATH` as a symlink and removes it again. It never uses `sudo`, never
+installs packages (it only reports missing dependencies) and touches nothing but that one link; add `--dry-run` to any command
+to see what it would do.
+
+    ./install.sh                 # install: ~/.local/bin/kaos-launcher -> this directory's wrapper (same as `install`)
+    ./install.sh status          # installed? where does the link point? is the app running?
+    ./install.sh uninstall       # remove the link (only if it points to this directory's wrapper)
+    ./install.sh uninstall --purge   # also remove ~/.config/kaos-launcher and ~/.local/state/kaos-launcher (asks first; --yes skips it)
+
+| Option | Meaning |
+|--------|---------|
+| `--bin-dir DIR` | Where the link lives (default `$KAOS_BIN_DIR`, else `~/.local/bin`) |
+| `--force` | `install`: replace a link or file that is already there (otherwise it refuses with exit status 1) |
+| `--purge` | `uninstall`: also remove the config and state directories after a y/N question; without a terminal it refuses unless `--yes` is given |
+| `--yes` | Do not ask (purge confirmation, stopping a running instance) |
+| `--dry-run` | Print what would happen, change nothing |
+
+Installing is idempotent; it warns when the bin directory is not in `PATH`. `uninstall` never deletes a regular file or a link
+that points somewhere else. If a resident instance of this app is running, it offers to stop it with `quickshell kill -p <this
+directory>` (never any other instance). `KAOS_INSTALL_NO_IPC=1` skips that check. Without `--purge` the config and state are kept.
+The script's tests are in `install.test.sh` (temporary directories only).
+
 ## Usage
 
 Start or toggle:
@@ -300,7 +324,8 @@ Run in this directory:
     node --test search.test.js sphere.test.js
     ruff check . && ruff format --check .
     qmllint -I /usr/lib/qt6/qml Launcher.qml SolarScene.qml SphereScene.qml Glow.qml DotMaterial.qml   # one file per call; shell.qml makes qmllint exit silently
-    shellcheck kaos-launcher
+    shellcheck kaos-launcher install.sh install.test.sh
+    ./install.test.sh
 
 To try it without touching your own configuration, point the XDG directories at a scratch location:
 
@@ -326,6 +351,7 @@ Files:
 | `search.js`, `search.test.js` | Pure fuzzy-match and ranking functions and their tests |
 | `test_kaos_launcher.py` | Backend tests |
 | `kaos-launcher` | Toggle-or-start wrapper script |
+| `install.sh`, `install.test.sh` | Installer for the `kaos-launcher` command (symlink) and its uninstall, with tests |
 | `config.example.toml` | Default config |
 
 ## Known limits

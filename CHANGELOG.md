@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `install.sh`: installs the `kaos-launcher` command as a symlink (default `~/.local/bin`, `--bin-dir`, `$KAOS_BIN_DIR`), idempotent, refuses to replace
+  other files or links without `--force`, checks dependencies and `PATH` without installing anything; `uninstall` removes only its own link
+  (`--purge` also removes config and state after confirmation), offers to stop a running instance of this app only; `status`, `--dry-run`.
+  Tested by `install.test.sh` in temporary directories.
+
 ## 0.2.0 - 2026-11-22
 
 Adds a second visual style, "sphere", next to the solar style. Solar behaves as in 0.1.0.
